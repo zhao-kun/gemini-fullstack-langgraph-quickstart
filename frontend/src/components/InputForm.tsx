@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { SquarePen, Brain, Send, StopCircle, Zap, Cpu } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,6 +9,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+interface ModelOption {
+  id: string;
+  name: string;
+  provider: string;
+}
+
+interface ModelsResponse {
+  models: ModelOption[];
+  current_provider: string;
+  default_models: {
+    query_generator: string;
+    reflection: string;
+    answer: string;
+  };
+}
 
 // Updated InputFormProps
 interface InputFormProps {
@@ -26,7 +42,47 @@ export const InputForm: React.FC<InputFormProps> = ({
 }) => {
   const [internalInputValue, setInternalInputValue] = useState("");
   const [effort, setEffort] = useState("medium");
-  const [model, setModel] = useState("gemini-2.5-flash-preview-04-17");
+  const [model, setModel] = useState("");
+  const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(true);
+
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        const response = await fetch('http://localhost:2024/api/models');
+        if (response.ok) {
+          const data: ModelsResponse = await response.json();
+          setAvailableModels(data.models);
+          // Set default model if available
+          if (data.models.length > 0 && !model) {
+            setModel(data.models[0].id);
+          }
+        } else {
+          console.error('Failed to fetch models');
+          // Fallback to hardcoded models if API fails
+          setAvailableModels([
+            {id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", provider: "google"},
+            {id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", provider: "google"},
+            {id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", provider: "google"},
+          ]);
+          setModel("gemini-2.0-flash");
+        }
+      } catch (error) {
+        console.error('Error fetching models:', error);
+        // Fallback to hardcoded models if fetch fails
+        setAvailableModels([
+          {id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", provider: "google"},
+          {id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", provider: "google"},
+          {id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", provider: "google"},
+        ]);
+        setModel("gemini-2.0-flash");
+      } finally {
+        setIsLoadingModels(false);
+      }
+    };
+
+    fetchModels();
+  }, []);
 
   const handleInternalSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -130,35 +186,37 @@ export const InputForm: React.FC<InputFormProps> = ({
               <Cpu className="h-4 w-4 mr-2" />
               Model
             </div>
-            <Select value={model} onValueChange={setModel}>
+            <Select value={model} onValueChange={setModel} disabled={isLoadingModels}>
               <SelectTrigger className="w-[150px] bg-transparent border-none cursor-pointer">
-                <SelectValue placeholder="Model" />
+                <SelectValue placeholder={isLoadingModels ? "Loading..." : "Model"} />
               </SelectTrigger>
               <SelectContent className="bg-neutral-700 border-neutral-600 text-neutral-300 cursor-pointer">
-                <SelectItem
-                  value="gemini-2.0-flash"
-                  className="hover:bg-neutral-600 focus:bg-neutral-600 cursor-pointer"
-                >
-                  <div className="flex items-center">
-                    <Zap className="h-4 w-4 mr-2 text-yellow-400" /> 2.0 Flash
-                  </div>
-                </SelectItem>
-                <SelectItem
-                  value="gemini-2.5-flash-preview-04-17"
-                  className="hover:bg-neutral-600 focus:bg-neutral-600 cursor-pointer"
-                >
-                  <div className="flex items-center">
-                    <Zap className="h-4 w-4 mr-2 text-orange-400" /> 2.5 Flash
-                  </div>
-                </SelectItem>
-                <SelectItem
-                  value="gemini-2.5-pro-preview-05-06"
-                  className="hover:bg-neutral-600 focus:bg-neutral-600 cursor-pointer"
-                >
-                  <div className="flex items-center">
-                    <Cpu className="h-4 w-4 mr-2 text-purple-400" /> 2.5 Pro
-                  </div>
-                </SelectItem>
+                {availableModels.map((modelOption) => (
+                  <SelectItem
+                    key={modelOption.id}
+                    value={modelOption.id}
+                    className="hover:bg-neutral-600 focus:bg-neutral-600 cursor-pointer"
+                  >
+                    <div className="flex items-center">
+                      {modelOption.provider === 'google' && modelOption.name.includes('2.0') && (
+                        <Zap className="h-4 w-4 mr-2 text-yellow-400" />
+                      )}
+                      {modelOption.provider === 'google' && modelOption.name.includes('2.5 Flash') && (
+                        <Zap className="h-4 w-4 mr-2 text-orange-400" />
+                      )}
+                      {modelOption.provider === 'google' && modelOption.name.includes('Pro') && (
+                        <Cpu className="h-4 w-4 mr-2 text-purple-400" />
+                      )}
+                      {modelOption.provider === 'openai' && (
+                        <Cpu className="h-4 w-4 mr-2 text-green-400" />
+                      )}
+                      {modelOption.provider === 'openai_compatible' && (
+                        <Cpu className="h-4 w-4 mr-2 text-blue-400" />
+                      )}
+                      {modelOption.name}
+                    </div>
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
