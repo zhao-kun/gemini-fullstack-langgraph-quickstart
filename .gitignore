@@ -200,3 +200,9 @@ cython_debug/
 #.idea/
 
 backend/.langgraph_api
+backend/.claude
+backend/config.yaml
+backend/IMPLEMENTATION_REVIEW_AND_IMPROVEMENTS.md
+backend/IMPLEMENTATION_REVIEW_SUMMARY.md
+backend/OPENAI_COMPATIBLE_SETUP.md
+backend/test_*.py

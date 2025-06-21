@@ -21,10 +21,37 @@ def main() -> None:
     )
     parser.add_argument(
         "--reasoning-model",
-        default="gemini-2.5-pro-preview-05-06",
+        default="gemini-2.5-pro",
         help="Model for the final answer",
     )
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to YAML configuration file",
+    )
+    parser.add_argument(
+        "--provider",
+        choices=["google", "openai", "openai_compatible"],
+        help="LLM provider to use (overrides config file)",
+    )
+    parser.add_argument(
+        "--search-tool",
+        choices=["google", "firecrawl", "none"],
+        help="Search tool to use (overrides config file)",
+    )
     args = parser.parse_args()
+
+    # Build configuration for the graph
+    config = {
+        "configurable": {}
+    }
+    
+    if args.provider:
+        config["configurable"]["llm_provider"] = args.provider
+    if args.search_tool:
+        config["configurable"]["search_tool"] = args.search_tool
+    if args.reasoning_model:
+        config["configurable"]["answer_model"] = args.reasoning_model
 
     state = {
         "messages": [HumanMessage(content=args.question)],
@@ -33,7 +60,7 @@ def main() -> None:
         "reasoning_model": args.reasoning_model,
     }
 
-    result = graph.invoke(state)
+    result = graph.invoke(state, config=config)
     messages = result.get("messages", [])
     if messages:
         print(messages[-1].content)

@@ -1,0 +1,90 @@
+# LangGraph Agent Configuration
+# Copy this file to config.yaml and update with your settings
+
+# LLM Provider Configuration
+llm_provider: "google"  # Options: google, openai, openai_compatible
+
+# Search Tool Configuration
+search_tool: "google"   # Options: google, firecrawl, none
+
+# Google Gemini Configuration (when llm_provider = "google")
+gemini_api_key: "your-gemini-api-key"
+
+# OpenAI Configuration (when llm_provider = "openai") 
+openai_api_key: "your-openai-api-key"
+
+# OpenAI-Compatible API Configuration (when llm_provider = "openai_compatible")
+openai_compatible:
+  base_url: "http://localhost:1234/v1"  # Your OpenAI-compatible endpoint
+  api_key: "your-api-key"               # Your API key
+
+# Firecrawl Configuration (when search_tool = "firecrawl")
+firecrawl:
+  api_key: "your-firecrawl-api-key"     # Your Firecrawl API key
+  base_url: "https://api.firecrawl.dev" # Firecrawl API endpoint
+
+# Search Configuration
+search:
+  max_search_results: 5                 # Maximum number of search results per query
+  max_content_length: 4000              # Maximum content length per scraped page
+
+# Model Configuration
+models:
+  query_generator: "gemini-2.0-flash"   # For Google: gemini-2.0-flash, For OpenAI: gpt-3.5-turbo, gpt-4
+  reflection: "gemini-2.5-flash"        # For Google: gemini-2.5-flash, For OpenAI: gpt-3.5-turbo, gpt-4  
+  answer: "gemini-2.5-pro"              # For Google: gemini-2.5-pro, For OpenAI: gpt-4, gpt-4-turbo
+
+# Research Configuration
+research:
+  number_of_initial_queries: 3
+  max_research_loops: 2
+
+# Example Configurations for Different Providers:
+
+# 1. OpenAI with Firecrawl Search:
+# llm_provider: "openai"
+# search_tool: "firecrawl"
+# openai_api_key: "sk-..."
+# firecrawl:
+#   api_key: "fc-..."
+# models:
+#   query_generator: "gpt-3.5-turbo"
+#   reflection: "gpt-3.5-turbo"
+#   answer: "gpt-4"
+
+# 2. Local LLM with Firecrawl Search (e.g., Ollama):
+# llm_provider: "openai_compatible"
+# search_tool: "firecrawl"
+# openai_compatible:
+#   base_url: "http://localhost:11434/v1"  # Ollama default
+#   api_key: "ollama"                      # Ollama doesn't require real key
+# firecrawl:
+#   api_key: "fc-..."                      # Your Firecrawl API key
+# models:
+#   query_generator: "llama3"
+#   reflection: "llama3"
+#   answer: "llama3"
+
+# 3. Together AI with Firecrawl Search:
+# llm_provider: "openai_compatible"
+# search_tool: "firecrawl"
+# openai_compatible:
+#   base_url: "https://api.together.xyz/v1"
+#   api_key: "your-together-api-key"
+# firecrawl:
+#   api_key: "fc-..."
+# models:
+#   query_generator: "meta-llama/Llama-3-8b-chat-hf"
+#   reflection: "meta-llama/Llama-3-8b-chat-hf"
+#   answer: "meta-llama/Llama-3-70b-chat-hf"
+
+# 4. OpenAI-Compatible without Web Search:
+# llm_provider: "openai_compatible"
+# search_tool: "none"  # No web search, knowledge-based only
+# openai_compatible:
+#   base_url: "http://localhost:1234/v1"
+#   api_key: "your-api-key"
+# models:
+#   query_generator: "gpt-3.5-turbo"
+#   reflection: "gpt-3.5-turbo"
+#   answer: "gpt-4"

@@ -1,5 +1,6 @@
 import os
 
+import os
 from agent.tools_and_schemas import SearchQueryList, Reflection
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage
@@ -30,14 +31,14 @@ from agent.utils import (
     insert_citation_markers,
     resolve_urls,
 )
+from agent.search_tools import create_search_tool
 
 load_dotenv()
 
-if os.getenv("GEMINI_API_KEY") is None:
-    raise ValueError("GEMINI_API_KEY is not set")
-
-# Used for Google Search API
-genai_client = Client(api_key=os.getenv("GEMINI_API_KEY"))
+# Initialize Google client only if using Google provider
+genai_client = None
+if os.getenv("GEMINI_API_KEY"):
+    genai_client = Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 
 # Nodes
@@ -60,12 +61,11 @@ def generate_query(state: OverallState, config: RunnableConfig) -> QueryGenerati
     if state.get("initial_search_query_count") is None:
         state["initial_search_query_count"] = configurable.number_of_initial_queries
 
-    # init Gemini 2.0 Flash
-    llm = ChatGoogleGenerativeAI(
-        model=configurable.query_generator_model,
+    # init LLM client
+    llm = configurable.get_llm_client(
+        model_name=configurable.query_generator_model,
         temperature=1.0,
-        max_retries=2,
-        api_key=os.getenv("GEMINI_API_KEY"),
+        max_retries=2
     )
     structured_llm = llm.with_structured_output(SearchQueryList)
 
@@ -93,9 +93,9 @@ def continue_to_web_research(state: QueryGenerationState):
 
 
 def web_research(state: WebSearchState, config: RunnableConfig) -> OverallState:
-    """LangGraph node that performs web research using the native Google Search API tool.
+    """LangGraph node that performs web research using various search tools.
 
-    Executes a web search using the native Google Search API tool in combination with Gemini 2.0 Flash.
+    Executes web search using Google Search API, Firecrawl API, or falls back to LLM knowledge.
 
     Args:
         state: Current graph state containing the search query and research loop count
@@ -111,23 +111,119 @@ def web_research(state: WebSearchState, config: RunnableConfig) -> OverallState:
         research_topic=state["search_query"],
     )
 
-    # Uses the google genai client as the langchain client doesn't return grounding metadata
-    response = genai_client.models.generate_content(
-        model=configurable.query_generator_model,
-        contents=formatted_prompt,
-        config={
-            "tools": [{"google_search": {}}],
-            "temperature": 0,
-        },
-    )
-    # resolve the urls to short urls for saving tokens and time
-    resolved_urls = resolve_urls(
-        response.candidates[0].grounding_metadata.grounding_chunks, state["id"]
-    )
-    # Gets the citations and adds them to the generated text
-    citations = get_citations(response, resolved_urls)
-    modified_text = insert_citation_markers(response.text, citations)
-    sources_gathered = [item for citation in citations for item in citation["segments"]]
+    if configurable.search_tool == "google" and configurable.llm_provider == "google":
+        # Use Google's native search with grounding
+        if not genai_client:
+            raise ValueError("Google client not initialized. GEMINI_API_KEY may be missing.")
+            
+        response = genai_client.models.generate_content(
+            model=configurable.query_generator_model,
+            contents=formatted_prompt,
+            config={
+                "tools": [{"google_search": {}}],
+                "temperature": 0,
+            },
+        )
+        # resolve the urls to short urls for saving tokens and time
+        resolved_urls = resolve_urls(
+            response.candidates[0].grounding_metadata.grounding_chunks, state["id"]
+        )
+        # Gets the citations and adds them to the generated text
+        citations = get_citations(response, resolved_urls)
+        modified_text = insert_citation_markers(response.text, citations)
+        sources_gathered = [item for citation in citations for item in citation["segments"]]
+        
+    elif configurable.search_tool == "firecrawl":
+        # Use Firecrawl for web search and scraping
+        try:
+            # Create Firecrawl search tool
+            search_tool = create_search_tool(
+                "firecrawl",
+                api_key=configurable.firecrawl_api_key or os.getenv("FIRECRAWL_API_KEY"),
+                base_url=configurable.firecrawl_base_url
+            )
+            
+            if not search_tool:
+                raise ValueError("Failed to create Firecrawl search tool")
+            
+            # Perform search and scraping
+            search_results = search_tool.search_and_scrape(
+                query=state["search_query"],
+                max_results=configurable.max_search_results,
+                max_content_length=configurable.max_content_length
+            )
+            
+            if search_results:
+                # Format results for LLM
+                search_content = search_tool.format_search_results(search_results)
+                
+                # Use LLM to synthesize research based on scraped content
+                llm = configurable.get_llm_client(
+                    model_name=configurable.query_generator_model,
+                    temperature=0,
+                    max_retries=2
+                )
+                
+                research_prompt = f"""
+                {formatted_prompt}
+                
+                Based on the following web search results, provide a comprehensive research response:
+                
+                {search_content}
+                
+                Please synthesize the information from these sources and provide insights relevant to the research topic.
+                Reference the sources using [1], [2], etc. format where appropriate.
+                """
+                
+                response = llm.invoke(research_prompt)
+                modified_text = response.content
+                
+                # Create citations compatible with existing system
+                citations = search_tool.create_citations(search_results)
+                sources_gathered = [item for citation in citations for item in citation["segments"]]
+            else:
+                # Fallback to knowledge-based response if no search results
+                llm = configurable.get_llm_client(
+                    model_name=configurable.query_generator_model,
+                    temperature=0,
+                    max_retries=2
+                )
+                response = llm.invoke(f"{formatted_prompt}\n\nNote: No web search results available. Provide response based on available knowledge.")
+                modified_text = response.content
+                sources_gathered = []
+                citations = []
+                
+        except Exception as e:
+            print(f"Firecrawl search failed: {str(e)}")
+            # Fallback to knowledge-based response
+            llm = configurable.get_llm_client(
+                model_name=configurable.query_generator_model,
+                temperature=0,
+                max_retries=2
+            )
+            response = llm.invoke(f"{formatted_prompt}\n\nNote: Web search unavailable. Provide response based on available knowledge.")
+            modified_text = response.content
+            sources_gathered = []
+            citations = []
+    else:
+        # For cases where no search tool is configured or available
+        llm = configurable.get_llm_client(
+            model_name=configurable.query_generator_model,
+            temperature=0,
+            max_retries=2
+        )
+        
+        fallback_prompt = f"""
+        {formatted_prompt}
+        
+        Note: Provide a comprehensive research response based on your knowledge. 
+        Since web search is not available, use your training data to answer as thoroughly as possible.
+        """
+        
+        response = llm.invoke(fallback_prompt)
+        modified_text = response.content
+        sources_gathered = []
+        citations = []
 
     return {
         "sources_gathered": sources_gathered,
@@ -163,11 +259,10 @@ def reflection(state: OverallState, config: RunnableConfig) -> ReflectionState:
         summaries="\n\n---\n\n".join(state["web_research_result"]),
     )
     # init Reasoning Model
-    llm = ChatGoogleGenerativeAI(
-        model=reasoning_model,
+    llm = configurable.get_llm_client(
+        model_name=reasoning_model,
         temperature=1.0,
-        max_retries=2,
-        api_key=os.getenv("GEMINI_API_KEY"),
+        max_retries=2
     )
     result = llm.with_structured_output(Reflection).invoke(formatted_prompt)
 
@@ -241,12 +336,11 @@ def finalize_answer(state: OverallState, config: RunnableConfig):
         summaries="\n---\n\n".join(state["web_research_result"]),
     )
 
-    # init Reasoning Model, default to Gemini 2.5 Flash
-    llm = ChatGoogleGenerativeAI(
-        model=reasoning_model,
+    # init Reasoning Model
+    llm = configurable.get_llm_client(
+        model_name=reasoning_model,
         temperature=0,
-        max_retries=2,
-        api_key=os.getenv("GEMINI_API_KEY"),
+        max_retries=2
     )
     result = llm.invoke(formatted_prompt)
 
