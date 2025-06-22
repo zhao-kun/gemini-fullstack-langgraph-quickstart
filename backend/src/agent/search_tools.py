@@ -17,6 +17,167 @@ class SearchResult:
     source: str = "unknown"
 
 
+class BraveSearchTool:
+    """Search tool using Brave Search API for web search and content retrieval."""
+    
+    def __init__(self, api_key: str, base_url: str = "https://api.search.brave.com"):
+        """Initialize Brave search tool.
+        
+        Args:
+            api_key: Brave Search API key
+            base_url: Brave Search API base URL
+        """
+        if not api_key:
+            raise ValueError("Brave Search API key cannot be empty")
+            
+        self.api_key = api_key
+        self.base_url = base_url.rstrip('/')
+        self.session = requests.Session()
+        self.session.headers.update({
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip',
+            'X-Subscription-Token': api_key
+        })
+    
+    def search_and_scrape(self, query: str, max_results: int = 5, max_content_length: int = 4000) -> List[SearchResult]:
+        """Search using Brave Search API and extract content.
+        
+        Args:
+            query: Search query
+            max_results: Maximum number of results to return
+            max_content_length: Maximum content length per result
+            
+        Returns:
+            List of SearchResult objects
+        """
+        try:
+            # Get search results from Brave Search API
+            search_results = self._brave_search(query, max_results)
+            
+            # Convert to SearchResult objects
+            results = []
+            for result in search_results:
+                # Extract basic content from snippet and description
+                content = self._extract_content_from_result(result, max_content_length)
+                
+                results.append(SearchResult(
+                    title=result.get('title', 'No Title'),
+                    url=result.get('url', ''),
+                    content=content,
+                    snippet=result.get('description', '')[:200] + '...' if result.get('description') else '',
+                    source='brave'
+                ))
+            
+            return results[:max_results]
+            
+        except Exception as e:
+            print(f"Brave search error: {str(e)}")
+            return []
+    
+    def _brave_search(self, query: str, max_results: int) -> List[Dict[str, Any]]:
+        """Search using Brave Search API."""
+        try:
+            response = self.session.get(
+                f"{self.base_url}/res/v1/web/search",
+                params={
+                    'q': query,
+                    'count': min(max_results, 20),  # Brave API supports up to 20 results
+                    'country': 'US',
+                    'search_lang': 'en',
+                    'ui_lang': 'en-US',
+                    'text_decorations': False,
+                    'spellcheck': True
+                },
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                web_results = data.get('web', {}).get('results', [])
+                return web_results
+            else:
+                raise Exception(f"Brave Search API returned status {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            print(f"Brave Search API error: {str(e)}")
+            return []
+    
+    def _extract_content_from_result(self, result: Dict[str, Any], max_content_length: int) -> str:
+        """Extract and format content from Brave search result."""
+        content_parts = []
+        
+        # Add description if available
+        if result.get('description'):
+            content_parts.append(result['description'])
+        
+        # Add any extra snippets if available
+        if result.get('extra_snippets'):
+            for snippet in result['extra_snippets']:
+                content_parts.append(snippet)
+        
+        # Add meta description if available
+        if result.get('meta_url', {}).get('description'):
+            content_parts.append(result['meta_url']['description'])
+        
+        # Combine content
+        content = ' '.join(content_parts)
+        
+        # Clean and truncate content
+        content = self._clean_content(content)
+        if len(content) > max_content_length:
+            content = content[:max_content_length] + '...'
+        
+        return content
+    
+    def format_search_results(self, results: List[SearchResult]) -> str:
+        """Format search results for LLM consumption."""
+        if not results:
+            return "No search results found."
+        
+        formatted_results = []
+        for i, result in enumerate(results, 1):
+            formatted_result = f"""
+**Source {i}: {result.title}**
+URL: {result.url}
+Content: {result.content}
+
+---
+"""
+            formatted_results.append(formatted_result)
+        
+        return "\n".join(formatted_results)
+    
+    def _clean_content(self, content: str) -> str:
+        """Clean content for better LLM processing."""
+        if not content:
+            return ""
+        
+        # Replace newlines with spaces first
+        content = re.sub(r'\n+', ' ', content)
+        # Remove excessive whitespace
+        content = re.sub(r'[ \t]+', ' ', content)
+        
+        return content.strip()
+    
+    def create_citations(self, results: List[SearchResult]) -> List[Dict[str, Any]]:
+        """Create citation data compatible with the existing citation system."""
+        citations = []
+        for i, result in enumerate(results, 1):
+            citation = {
+                "label": f"[{i}]",
+                "segments": [{
+                    "label": f"{i}",
+                    "short_url": f"[{i}]",
+                    "value": result.url,
+                    "title": result.title,
+                    "content": result.snippet
+                }]
+            }
+            citations.append(citation)
+        
+        return citations
+
+
 class FirecrawlSearchTool:
     """Search tool using Firecrawl API for web scraping and content extraction."""
     
@@ -363,11 +524,11 @@ Content: {clean_content}
         return positions[:3]  # Limit to first 3 matches
 
 
-def create_search_tool(search_tool_type: str, **kwargs) -> Optional[FirecrawlSearchTool]:
+def create_search_tool(search_tool_type: str, **kwargs):
     """Factory function to create search tools with enhanced validation.
     
     Args:
-        search_tool_type: Type of search tool ('firecrawl')
+        search_tool_type: Type of search tool ('firecrawl', 'brave')
         **kwargs: Additional arguments for the search tool
         
     Returns:
@@ -387,6 +548,18 @@ def create_search_tool(search_tool_type: str, **kwargs) -> Optional[FirecrawlSea
             return FirecrawlSearchTool(api_key=api_key, base_url=base_url)
         except Exception as e:
             raise ValueError(f"Failed to initialize Firecrawl search tool: {str(e)}")
+    
+    elif search_tool_type == "brave":
+        api_key = kwargs.get('api_key')
+        base_url = kwargs.get('base_url', 'https://api.search.brave.com')
+        
+        if not api_key:
+            raise ValueError("Brave Search API key is required")
+        
+        try:
+            return BraveSearchTool(api_key=api_key, base_url=base_url)
+        except Exception as e:
+            raise ValueError(f"Failed to initialize Brave search tool: {str(e)}")
     
     elif search_tool_type == "google":
         # Future: Could implement Google Custom Search API

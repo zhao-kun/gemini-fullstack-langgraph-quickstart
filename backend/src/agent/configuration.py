@@ -34,10 +34,10 @@ class Configuration(BaseModel):
     )
 
     # Search Tool Configuration
-    search_tool: Literal["google", "firecrawl", "none"] = Field(
+    search_tool: Literal["google", "firecrawl", "brave", "none"] = Field(
         default="google",
         metadata={
-            "description": "Search tool to use for web research. Options: 'google', 'firecrawl', 'none'"
+            "description": "Search tool to use for web research. Options: 'google', 'firecrawl', 'brave', 'none'"
         },
     )
 
@@ -53,6 +53,21 @@ class Configuration(BaseModel):
         default="https://api.firecrawl.dev",
         metadata={
             "description": "Base URL for Firecrawl API"
+        },
+    )
+
+    # Brave Search API Configuration
+    brave_api_key: Optional[str] = Field(
+        default=None,
+        metadata={
+            "description": "API key for Brave Search service"
+        },
+    )
+
+    brave_base_url: Optional[str] = Field(
+        default="https://api.search.brave.com",
+        metadata={
+            "description": "Base URL for Brave Search API"
         },
     )
 
@@ -151,6 +166,10 @@ class Configuration(BaseModel):
                 flattened_config["firecrawl_api_key"] = file_config["firecrawl"].get("api_key")
                 flattened_config["firecrawl_base_url"] = file_config["firecrawl"].get("base_url")
             
+            if "brave" in file_config:
+                flattened_config["brave_api_key"] = file_config["brave"].get("api_key")
+                flattened_config["brave_base_url"] = file_config["brave"].get("base_url")
+            
             if "search" in file_config:
                 flattened_config["max_search_results"] = file_config["search"].get("max_search_results")
                 flattened_config["max_content_length"] = file_config["search"].get("max_content_length")
@@ -208,6 +227,10 @@ class Configuration(BaseModel):
         if self.search_tool == "firecrawl":
             if not (self.firecrawl_api_key or os.getenv("FIRECRAWL_API_KEY")):
                 print("Warning: Firecrawl API key not found when using Firecrawl search tool")
+        
+        elif self.search_tool == "brave":
+            if not (self.brave_api_key or os.getenv("BRAVE_API_KEY")):
+                print("Warning: Brave Search API key not found when using Brave search tool")
         
         elif self.search_tool == "google" and self.llm_provider != "google":
             print("Warning: Google search tool works best with Google LLM provider for grounding functionality")
