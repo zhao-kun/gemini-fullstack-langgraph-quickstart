@@ -95,7 +95,7 @@ def continue_to_web_research(state: QueryGenerationState):
 def web_research(state: WebSearchState, config: RunnableConfig) -> OverallState:
     """LangGraph node that performs web research using various search tools.
 
-    Executes web search using Google Search API, Firecrawl API, or falls back to LLM knowledge.
+    Executes web search using Google Search API, Firecrawl API, Brave Search API, or falls back to LLM knowledge.
 
     Args:
         state: Current graph state containing the search query and research loop count
@@ -195,6 +195,79 @@ def web_research(state: WebSearchState, config: RunnableConfig) -> OverallState:
                 
         except Exception as e:
             print(f"Firecrawl search failed: {str(e)}")
+            # Fallback to knowledge-based response
+            llm = configurable.get_llm_client(
+                model_name=configurable.query_generator_model,
+                temperature=0,
+                max_retries=2
+            )
+            response = llm.invoke(f"{formatted_prompt}\n\nNote: Web search unavailable. Provide response based on available knowledge.")
+            modified_text = response.content
+            sources_gathered = []
+            citations = []
+            
+    elif configurable.search_tool == "brave":
+        # Use Brave Search API for web search
+        try:
+            # Create Brave search tool
+            search_tool = create_search_tool(
+                "brave",
+                api_key=configurable.brave_api_key or os.getenv("BRAVE_API_KEY"),
+                base_url=configurable.brave_base_url
+            )
+            
+            if not search_tool:
+                raise ValueError("Failed to create Brave search tool")
+            
+            # Perform search
+            search_results = search_tool.search_and_scrape(
+                query=state["search_query"],
+                max_results=configurable.max_search_results,
+                max_content_length=configurable.max_content_length
+            )
+            
+            if search_results:
+                # Format results for LLM
+                search_content = search_tool.format_search_results(search_results)
+                
+                # Use LLM to synthesize research based on search content
+                llm = configurable.get_llm_client(
+                    model_name=configurable.query_generator_model,
+                    temperature=0,
+                    max_retries=2
+                )
+                
+                research_prompt = f"""
+                {formatted_prompt}
+                
+                Based on the following web search results from Brave Search, provide a comprehensive research response:
+                
+                {search_content}
+                
+                Please synthesize the information from these sources and provide insights relevant to the research topic.
+                Reference the sources using [1], [2], etc. format where appropriate.
+                """
+                
+                response = llm.invoke(research_prompt)
+                modified_text = response.content
+                
+                # Create citations compatible with existing system
+                citations = search_tool.create_citations(search_results)
+                sources_gathered = [item for citation in citations for item in citation["segments"]]
+            else:
+                # Fallback to knowledge-based response if no search results
+                llm = configurable.get_llm_client(
+                    model_name=configurable.query_generator_model,
+                    temperature=0,
+                    max_retries=2
+                )
+                response = llm.invoke(f"{formatted_prompt}\n\nNote: No web search results available. Provide response based on available knowledge.")
+                modified_text = response.content
+                sources_gathered = []
+                citations = []
+                
+        except Exception as e:
+            print(f"Brave search failed: {str(e)}")
             # Fallback to knowledge-based response
             llm = configurable.get_llm_client(
                 model_name=configurable.query_generator_model,

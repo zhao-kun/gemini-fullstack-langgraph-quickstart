@@ -5,7 +5,7 @@
 llm_provider: "google"  # Options: google, openai, openai_compatible
 
 # Search Tool Configuration
-search_tool: "google"   # Options: google, firecrawl, none
+search_tool: "google"   # Options: google, firecrawl, brave, none
 
 # Google Gemini Configuration (when llm_provider = "google")
 gemini_api_key: "your-gemini-api-key"
@@ -22,6 +22,11 @@ openai_compatible:
 firecrawl:
   api_key: "your-firecrawl-api-key"     # Your Firecrawl API key
   base_url: "https://api.firecrawl.dev" # Firecrawl API endpoint
+
+# Brave Search Configuration (when search_tool = "brave")
+brave:
+  api_key: "your-brave-search-api-key"  # Your Brave Search API key
+  base_url: "https://api.search.brave.com" # Brave Search API endpoint
 
 # Search Configuration
 search:
@@ -78,7 +83,29 @@ research:
 #   reflection: "meta-llama/Llama-3-8b-chat-hf"
 #   answer: "meta-llama/Llama-3-70b-chat-hf"
 
-# 4. OpenAI-Compatible without Web Search:
+# 4. OpenAI with Brave Search:
+# llm_provider: "openai"
+# search_tool: "brave"
+# openai_api_key: "sk-..."
+# brave:
+#   api_key: "BSA..."
+# models:
+#   query_generator: "gpt-3.5-turbo"
+#   reflection: "gpt-3.5-turbo"
+#   answer: "gpt-4"
+
+# 5. Google Gemini with Brave Search:
+# llm_provider: "google"
+# search_tool: "brave"
+# gemini_api_key: "your-gemini-api-key"
+# brave:
+#   api_key: "BSA..."
+# models:
+#   query_generator: "gemini-2.0-flash"
+#   reflection: "gemini-2.5-flash"
+#   answer: "gemini-2.5-pro"
+
+# 6. OpenAI-Compatible without Web Search:
 # llm_provider: "openai_compatible"
 # search_tool: "none"  # No web search, knowledge-based only
 # openai_compatible:
